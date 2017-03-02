@@ -1,6 +1,6 @@
 # Slack Bot – Stack Overflow Feed
 
-Posts links in Slack for each new Stack Overflow question with a given tag.
+Posts links in Slack for each new Stack Overflow question that match a given search query.
 
 ## Setup
 
