@@ -3,7 +3,14 @@
 var Bot = require('slackbots'),
     assert = require('assert'),
     dotenv = require('dotenv'),
-    fetch = require('node-fetch');
+    fetch = require('node-fetch'),
+    pgp = require('pg-promise')(),
+    connectionString = process.env.DATABASE_URL || 'postgres://localhost:5432/slackoverflow',
+    db = null,
+    now = new Date();
+
+// Default to search last 24 hours
+var DEFAULT_FROM_DATE = (new Date()).setDate(now.getDate() - 1);
 
 dotenv.load({silent: true});
 
@@ -25,8 +32,26 @@ var API_URL = 'https://api.stackexchange.com'
 
 class StackOverflowFeedBot {
   constructor () {
-    this.fromdate = Math.floor((new Date()).getTime() / 1000);
-    this.bot = new Bot({token: process.env.SLACK_TOKEN, name: process.env.SLACK_NAME});
+
+    db = pgp(process.env.DATABASE_URL);
+
+    // Get last update time from database to search from, otherwise use default
+    this.getLastKnownQuestionDate()
+      .then(function(date) {
+        var fromDate = date || DEFAULT_FROM_DATE;
+        console.log('Using last update date:', date);
+        this.fromDate = Math.floor(date).getTime() / 1000;
+        this.bot = new Bot({token: process.env.SLACK_TOKEN, name: process.env.SLACK_NAME});
+      });    
+
+  }
+
+  getLastKnownQuestionDate() {
+    return db.one('select date from lastKnownQuestion');
+  }
+
+  updateLastKnownQuestionDate(date) {
+    return db.one('update lastKnownQuestion set date = $1', [date])
   }
 
   start () {
@@ -43,21 +68,27 @@ class StackOverflowFeedBot {
     var url = API_URL
       .replace('{key}', encodeURIComponent(process.env.STACK_OVERFLOW_API_KEY))
       .replace('{query}', encodeURIComponent(process.env.STACK_OVERFLOW_QUERY))
-      .replace('{fromdate}', this.fromdate);
+      .replace('{fromdate}', this.fromDate);
 
-    console.log('Polling...');
+    console.log('Polling...', API_URL);
+
+    var self = this;
 
     fetch(url)
       .then((res) => res.json())
       .then((json) => {
         console.log('JSON response from Stack Overflow:', json);
         json.items.forEach(this.post.bind(this));
+      })
+      .then(() => {
+        console.log('Updating last known question date', this.fromDate);
+        return self.updateLastKnownQuestionDate(this.fromDate);
       });
   }
 
   post (question) {
     console.log('Posting question', question.link);
-    this.fromdate = Math.max(this.fromdate, question.creation_date + 1);
+    this.fromDate = Math.max(this.fromDate, question.creation_date + 1);
     if (this.bot) {
       this.bot.postMessageToChannel(process.env.SLACK_CHANNEL, question.link, {unfurl_links: true});
     } else {
