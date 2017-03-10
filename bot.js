@@ -5,7 +5,7 @@ var Bot = require('slackbots'),
     dotenv = require('dotenv'),
     fetch = require('node-fetch'),
     pgp = require('pg-promise')(),
-    connectionString = process.env.DATABASE_URL || 'postgres://localhost:5432/slackoverflow',
+    connectionString = process.env.DATABASE_URL,
     db = null,
     now = new Date();
 
@@ -35,23 +35,33 @@ class StackOverflowFeedBot {
 
     db = pgp(process.env.DATABASE_URL);
 
+    var self = this;
+
     // Get last update time from database to search from, otherwise use default
     this.getLastKnownQuestionDate()
       .then(function(date) {
         var fromDate = date || DEFAULT_FROM_DATE;
         console.log('Using last update date:', date);
-        this.fromDate = Math.floor(date).getTime() / 1000;
-        this.bot = new Bot({token: process.env.SLACK_TOKEN, name: process.env.SLACK_NAME});
+        console.log('fromDate', fromDate);
+        self.fromDate = Math.floor(fromDate / 1000);
+        self.bot = new Bot({token: process.env.SLACK_TOKEN, name: process.env.SLACK_NAME});
+      })
+      .then(function() {
+        self.start();
       });    
 
   }
 
   getLastKnownQuestionDate() {
-    return db.one('select date from lastKnownQuestion');
+    return db.one('select date from lastKnownQuestion')
+      .catch(function(err) {
+        console.log('No last known question', err);
+        return null;
+      });
   }
 
   updateLastKnownQuestionDate(date) {
-    return db.one('update lastKnownQuestion set date = $1', [date])
+    return db.one('update lastKnownQuestion set date = $1', [date]);
   }
 
   start () {
@@ -97,4 +107,4 @@ class StackOverflowFeedBot {
   }
 }
 
-(new StackOverflowFeedBot()).start();
+new StackOverflowFeedBot();
