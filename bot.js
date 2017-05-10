@@ -76,9 +76,8 @@ class StackOverflowFeedBot {
   }
 
   start () {
-    if (process.env.RUN_ONCE) {
-      this.poll();
-    } else {
+    this.poll();
+    if (!process.env.RUN_ONCE) {
       this.bot.on('start', () => {
         setInterval(this.poll.bind(this), process.env.REFRESH_RATE_SECONDS * 1000);
       });
