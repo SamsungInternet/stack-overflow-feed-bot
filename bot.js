@@ -19,7 +19,7 @@ assert(process.env.SLACK_NAME, 'missing SLACK_NAME in env');
 assert(process.env.SLACK_CHANNEL, 'missing SLACK_CHANNEL in env');
 assert(process.env.STACK_OVERFLOW_QUERY, 'missing STACK_OVERFLOW_QUERY in env');
 assert(process.env.STACK_OVERFLOW_API_KEY, 'missing STACK_OVERFLOW_API_KEY in env');
-assert(process.env.REFRESH_RATE_SECONDS >= 60, 'REFRESH_RATE_SECONDS must be >= 60');
+assert(process.env.REFRESH_RATE_SECONDS >= 120, 'REFRESH_RATE_SECONDS must be >= 60');
 
 var API_URL = 'https://api.stackexchange.com'
   + '/2.2/search/advanced'
@@ -52,6 +52,7 @@ class StackOverflowFeedBot {
 
   getLastKnownQuestionDate() {
     return db.one('select timestamp from lastKnownQuestion')
+      .then(function(row) {return row.timestamp})
       .catch(function(err) {
         console.log('No last known question');
         return null;
@@ -59,14 +60,19 @@ class StackOverflowFeedBot {
   }
 
   updateLastKnownQuestion(id, date) {
-    return db.one('update lastKnownQuestion set id=$1, timestamp = $2', [id, date])
-      .catch(function(err) {
-        console.log('Failed to update, probably because row was empty. Inserting...');
+    return db.any('select * from lastKnownQuestion')
+      .then(function(rows) {
+        if (rows && rows.length) {
+          console.log('Update lastKnownQuestion', id, date);
+          return db.none('update lastKnownQuestion set id = $1, timestamp = $2', [id, date]);
+        }
+        // No entries yet so insert
+        console.log('Insert lastKnownQuestion', id, date);
         return db.none('insert into lastKnownQuestion(id, timestamp) values ($1, $2)', [id, date])
           .then(function() {
-            console.log('Inserted lastKnownQuestion');
+            console.log('Inserted lastKnownQuestion', id, date);
           });
-      })
+      });
   }
 
   start () {
@@ -80,7 +86,9 @@ class StackOverflowFeedBot {
   }
 
   getFromDate() {
-    return this.lastKnownQuestionDate ? this.lastKnownQuestionDate + 1 : DEFAULT_FROM_DATE;
+    var lastDate = this.lastKnownQuestionDate; 
+    // Start from 1 second later than last known question date
+    return lastDate ? (new Date(lastDate)).setSeconds(lastDate.getSeconds() + 1) : DEFAULT_FROM_DATE;
   }
 
   poll () {
