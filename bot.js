@@ -9,8 +9,8 @@ var Bot = require('slackbots'),
     db = null,
     now = new Date();
 
-// Default to search last 24 hours
-var DEFAULT_FROM_DATE = (new Date()).setDate(now.getDate() - 1);
+// Default to search last week
+var DEFAULT_FROM_DATE = (new Date()).setDate(now.getDate() - 7);
 
 dotenv.load({silent: true});
 
@@ -40,10 +40,8 @@ class StackOverflowFeedBot {
     // Get last update time from database to search from, otherwise use default
     this.getLastKnownQuestionDate()
       .then(function(date) {
-        var fromDate = date || DEFAULT_FROM_DATE;
-        console.log('Using last update date:', date);
-        console.log('fromDate', fromDate);
-        self.fromDate = Math.floor(fromDate / 1000);
+        console.log('Last known question date', date);
+        self.lastKnownQuestionDate = date;
         self.bot = new Bot({token: process.env.SLACK_TOKEN, name: process.env.SLACK_NAME});
       })
       .then(function() {
@@ -53,15 +51,22 @@ class StackOverflowFeedBot {
   }
 
   getLastKnownQuestionDate() {
-    return db.one('select date from lastKnownQuestion')
+    return db.one('select timestamp from lastKnownQuestion')
       .catch(function(err) {
-        console.log('No last known question', err);
+        console.log('No last known question');
         return null;
       });
   }
 
-  updateLastKnownQuestionDate(date) {
-    return db.one('update lastKnownQuestion set date = $1', [date]);
+  updateLastKnownQuestion(id, date) {
+    return db.one('update lastKnownQuestion set id=$1, timestamp = $2', [id, date])
+      .catch(function(err) {
+        console.log('Failed to update, probably because row was empty. Inserting...');
+        return db.none('insert into lastKnownQuestion(id, timestamp) values ($1, $2)', [id, date])
+          .then(function() {
+            console.log('Inserted lastKnownQuestion');
+          });
+      })
   }
 
   start () {
@@ -74,11 +79,15 @@ class StackOverflowFeedBot {
     }
   }
 
+  getFromDate() {
+    return this.lastKnownQuestionDate ? this.lastKnownQuestionDate + 1 : DEFAULT_FROM_DATE;
+  }
+
   poll () {
     var url = API_URL
       .replace('{key}', encodeURIComponent(process.env.STACK_OVERFLOW_API_KEY))
       .replace('{query}', encodeURIComponent(process.env.STACK_OVERFLOW_QUERY))
-      .replace('{fromdate}', this.fromDate);
+      .replace('{fromdate}', Math.floor(this.getFromDate() / 1000));
 
     console.log('Polling...', API_URL);
 
@@ -91,16 +100,29 @@ class StackOverflowFeedBot {
         json.items.forEach(this.post.bind(this));
       })
       .then(() => {
-        console.log('Updating last known question date', this.fromDate);
-        return self.updateLastKnownQuestionDate(this.fromDate);
+        if (this.lastKnownQuestionId) {
+          console.log('Updating DB with last known question', this.lastKnownQuestionId, this.lastKnownQuestionDate);
+          return self.updateLastKnownQuestion(this.lastKnownQuestionId, this.lastKnownQuestionDate);
+        }
       });
   }
 
   post (question) {
-    console.log('Posting question', question.link);
-    this.fromDate = Math.max(this.fromDate, question.creation_date + 1);
+    console.log('Posting question', question.question_id);
+    
+    var creationDate = new Date(question.creation_date * 1000);
+
+    console.log('creationDate', creationDate);
+
+    if (creationDate > this.lastKnownQuestionDate) {
+      this.lastKnownQuestionDate = creationDate;
+      this.lastKnownQuestionId = question.question_id;
+      console.log('Last known question', this.lastKnownQuestionDate, this.lastKnownQuestionId);
+    }
+
     if (this.bot) {
-      this.bot.postMessageToChannel(process.env.SLACK_CHANNEL, question.link, {unfurl_links: true});
+      // TEMP commented out
+      //this.bot.postMessageToChannel(process.env.SLACK_CHANNEL, question.link, {unfurl_links: true});
     } else {
       console.log(question);
     }
