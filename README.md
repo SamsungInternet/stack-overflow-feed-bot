@@ -2,6 +2,12 @@
 
 Posts links in Slack for each new Stack Overflow question that match a given search query.
 
+Forked from [donmccurdy/stack-overflow-feed-bot](https://github.com/donmccurdy/stack-overflow-feed-bot) in order to:
+
+* Search for query strings instead of tags.
+* Set up for hosting on Heroku.
+* Add a Postgres database, to remember the latest question found (so it works beyond Heroku restarts).
+
 ## Setup
 
 1. [Create a new Bot User](https://api.slack.com/bot-users#how_do_i_create_custom_bot_users_for_my_team) for your Slack team (you'll need to be an admin). You only need a **Bot Access Token**.
