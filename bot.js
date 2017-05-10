@@ -128,8 +128,7 @@ class StackOverflowFeedBot {
     }
 
     if (this.bot) {
-      // TEMP commented out
-      //this.bot.postMessageToChannel(process.env.SLACK_CHANNEL, question.link, {unfurl_links: true});
+      this.bot.postMessageToChannel(process.env.SLACK_CHANNEL, question.link, {unfurl_links: true});
     } else {
       console.log(question);
     }
